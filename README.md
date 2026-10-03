@@ -53,6 +53,66 @@
 - **Step-by-step debugging** — optionally save all intermediate outputs for inspection
 
 
+## OpenAI-compatible providers and LiteLLM (this fork)
+
+All three AI stages (page analysis, grouping and ordering) can use an OpenAI-compatible
+Chat Completions endpoint. LiteLLM can route these requests to its configured providers;
+Riordino needs only the gateway URL, a gateway key and a model alias. Direct Gemini
+remains the default. An API key alone does not make every model compatible: page
+analysis and ordering require **image input**, and every stage requires valid JSON.
+
+Example `.env` for a gateway (replace placeholders; never commit real keys):
+
+```dotenv
+RIORDINO_PROVIDER=openai
+RIORDINO_BASE_URL=http://localhost:4000/v1
+RIORDINO_MODEL=your-vision-model-alias
+RIORDINO_API_KEY_ENV=RIORDINO_GATEWAY_KEY
+RIORDINO_GATEWAY_KEY=replace-with-your-gateway-key
+RIORDINO_RESPONSE_FORMAT=json_schema
+```
+
+Use the reachable gateway hostname in place of `localhost` for a remote gateway.
+The model name is the **gateway alias**, not necessarily the upstream provider's model ID.
+Provider keys stay on LiteLLM; use a limited application key for Riordino.
+For direct OpenAI, omit `RIORDINO_BASE_URL` and use `OPENAI_API_KEY` (omit the custom
+`RIORDINO_API_KEY_ENV` setting). Other OpenAI-compatible servers use their own base URL.
+Native provider protocols such as Anthropic's should be accessed through LiteLLM.
+
+```sh
+# Analyse without writing output PDFs, preserving blanks and original page order:
+riordino batch.pdf --dry-run --skip-blanks --skip-ordering
+
+# Write to a staging folder for review, NOT directly to Paperless's consume folder:
+riordino batch.pdf -o output/review --skip-blanks --skip-ordering --save-steps
+```
+
+`--dry-run` still sends images to the configured model endpoint. Running on a Mac
+only keeps inference local if the selected gateway route uses a local model;
+cloud routes (including gateway fallbacks) send content to that provider.
+No automatic switch to another provider or response mode happens in Riordino.
+
+Configuration flags override environment variables:
+
+| Flag | Environment | Default |
+| --- | --- | --- |
+| `--provider gemini\|openai` | `RIORDINO_PROVIDER` | `gemini` |
+| `--base-url` | `RIORDINO_BASE_URL` | OpenAI public API for `openai` |
+| `--model` | `RIORDINO_MODEL` | Required for `openai`; existing Gemini default otherwise |
+| `--api-key-env` | `RIORDINO_API_KEY_ENV` | `OPENAI_API_KEY` or `GOOGLE_API_KEY` |
+| `--response-format json_schema\|json_object` | `RIORDINO_RESPONSE_FORMAT` | `json_schema` |
+| `--request-timeout` | — | 120 seconds |
+
+`json_schema` requests strict structured output. For models without that capability,
+explicitly select `json_object`; Riordino still validates the JSON against the same
+schema. Missing/duplicate/out-of-range page groups, incomplete responses and refusals
+fail before output PDFs are written. Transient connection/rate-limit/server failures
+use `--max-retries`; authentication and schema failures are not retried. Credentials
+are read from environment variables, never command-line key arguments.
+
+This addition provides model transport, not a review GUI, inbox watcher or automatic
+Paperless import. Split quality still needs evaluation on representative scans.
+
 ## Prerequisites
 
 - **Python 3.14+**
@@ -85,7 +145,7 @@ sudo apt install tesseract-ocr-deu tesseract-ocr-fra tesseract-ocr-ita tesseract
 ## Installation
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/riordino.git
+git clone https://github.com/tmault/riordino.git
 cd riordino
 
 python -m venv .venv

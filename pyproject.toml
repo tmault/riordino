@@ -23,6 +23,7 @@ dependencies = [
     "pymupdf>=1.25",
     "pytesseract>=0.3.10",
     "google-genai>=1.0",
+    "openai>=1.68,<3",
     "pydantic>=2.0",
     "Pillow>=10.0",
     "python-dotenv>=1.0",
@@ -86,3 +87,6 @@ warn_unused_configs = true
 disallow_untyped_defs = true
 check_untyped_defs = true
 ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

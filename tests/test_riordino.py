@@ -5,6 +5,7 @@ import json
 import sys
 import types
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -226,9 +227,12 @@ def load_riordino_module():
     click.option = identity_decorator
     click.IntRange = lambda *args, **kwargs: None
     click.FloatRange = lambda *args, **kwargs: None
+    click.Choice = lambda *args, **kwargs: None
     click.Path = lambda *args, **kwargs: None
 
-    sys.modules.update(
+    importlib.import_module("openai")
+    with patch.dict(
+        sys.modules,
         {
             "click": click,
             "dotenv": dotenv,
@@ -246,15 +250,16 @@ def load_riordino_module():
             "rich.table": rich_table,
             "rich.text": rich_text,
             "tenacity": tenacity,
-        }
-    )
-
-    spec = importlib.util.spec_from_file_location("riordino_test", Path(__file__).resolve().parents[1] / "riordino.py")
-    module = importlib.util.module_from_spec(spec)
-    assert spec and spec.loader
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+        },
+    ):
+        spec = importlib.util.spec_from_file_location(
+            "riordino_test", Path(__file__).resolve().parents[1] / "riordino.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        assert spec and spec.loader
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        return module
 
 
 @pytest.fixture
