@@ -222,3 +222,35 @@ This processes the input PDF(s) and writes the split documents to the same direc
 - [ ] Add a `--verbose` / `--quiet` flag for log level control
 - [ ] Explore local/open-source LLM backends as an alternative to Gemini
 - [ ] Support OCR-based text extraction as a fallback when Gemini is unavailable
+
+### Mac bulk-scan operator workflow
+
+`scripts/mac_bulk.py` adds a manual workflow for an existing local Gemma vision
+server on `127.0.0.1:8003`. It fetches PDFs over SSH from a separate Tower bulk
+inbox, preserves originals by checksum and writes split PDFs into `Review`.
+It uses concise analysis, one page per request, one model request at a time and
+a 300-second timeout. Blank removal, rotation and reordering are disabled to
+preserve the scanned pages; feed pages upright. The existing local model key is
+read from `~/Library/Application Support/gemma4-e4b/api.key`, without copying it.
+
+```sh
+python scripts/mac_bulk.py process --workspace "$HOME/Documents/Codex/Bulk Scans"
+```
+
+Review each batch's PDFs and `Review.html`, then copy only approved PDFs into
+`Approved`. Explicit import asks you to type `IMPORT` and submits them atomically
+to Paperless's consume folder:
+
+```sh
+python scripts/mac_bulk.py import --workspace "$HOME/Documents/Codex/Bulk Scans"
+```
+
+`--host`, `--remote-inbox`, `--workspace` and `--key-file` are configurable.
+Defaults target `root@tower.local`, `/mnt/user/data/paperless/bulk-inbox` and the
+existing local model. This operator script assumes your pre-existing SSH access;
+it does not provision credentials. The remote import helper targets
+`/mnt/user/data/paperless/consume` and records checksums in sibling `bulk-imported`.
+An interrupted import is held as `pending` for reconciliation instead of retried
+blindly. Input, review and approved copies are retained. This is a file-based
+review workflow, not a graphical boundary editor. Check the imported document's
+status in Paperless; file delivery alone does not prove successful consumption.

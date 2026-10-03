@@ -127,6 +127,8 @@ class PipelineOptions(BaseModel):
     base_url: str | None = None
     api_key_env: str | None = None
     response_format: Literal["json_schema", "json_object"] = "json_schema"
+    llm_workers: int = 4
+    analysis_detail: Literal["full", "concise"] = "full"
     request_timeout: float = 120.0
     save_steps: bool = False
     skip_blanks: bool = False
@@ -159,6 +161,8 @@ class PipelineOptions(BaseModel):
         api_key_env: str | None = None,
         response_format: Literal["json_schema", "json_object"] = "json_schema",
         request_timeout: float = 120.0,
+        llm_workers: int = 4,
+        analysis_detail: Literal["full", "concise"] = "full",
     ) -> PipelineOptions:
         if not input_paths:
             raise CliError("at least one input PDF is required.")
@@ -177,6 +181,8 @@ class PipelineOptions(BaseModel):
             api_key_env=api_key_env,
             response_format=response_format,
             request_timeout=request_timeout,
+            llm_workers=llm_workers,
+            analysis_detail=analysis_detail,
             batch_size=batch_size,
             max_retries=max_retries,
             dry_run=dry_run,
@@ -321,10 +327,12 @@ def make_progress() -> Progress:
     )
 
 
-def load_prompts(base_dir: Path = SCRIPT_DIR / "prompts") -> PromptSet:
+def load_prompts(base_dir: Path = SCRIPT_DIR / "prompts", analysis_detail: str = "full") -> PromptSet:
     try:
         return PromptSet(
-            analysis=(base_dir / "analysis.txt").read_text(encoding="utf-8"),
+            analysis=(
+                base_dir / ("analysis-concise.txt" if analysis_detail == "concise" else "analysis.txt")
+            ).read_text(encoding="utf-8"),
             aggregation=(base_dir / "aggregation.txt").read_text(encoding="utf-8"),
             ordering=(base_dir / "ordering.txt").read_text(encoding="utf-8"),
         )
@@ -940,7 +948,7 @@ def analyze_pages(service: DocumentService, context: PipelineContext, pages: lis
         pages[start : start + context.options.batch_size] for start in range(0, len(pages), context.options.batch_size)
     ]
     results: dict[int, list[PageAnalysis]] = {}
-    max_workers = max_workers_for(len(batches), 4)
+    max_workers = max_workers_for(len(batches), context.options.llm_workers)
     with make_progress() as progress:
         task = progress.add_task("Analyzing pages", total=len(batches))
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
@@ -1029,7 +1037,7 @@ def order_groups(
         f"\n[bold]Ordering[/] pages within {len(aggregation.documents)} documents [dim]({context.options.model})[/]"
     )
     page_images = [page.image for page in pages]
-    max_workers = max_workers_for(len(aggregation.documents), 4)
+    max_workers = max_workers_for(len(aggregation.documents), context.options.llm_workers)
     ordered_groups: dict[int, DocumentGroup] = {}
     with make_progress() as progress:
         task = progress.add_task("Ordering pages", total=len(aggregation.documents))
@@ -1114,7 +1122,7 @@ def run_pipeline(options: PipelineOptions) -> None:
         rotation = correct_rotations(context, cleanup.pages)
         service = None
         if not options.skip_analysis:
-            prompts = load_prompts()
+            prompts = load_prompts(analysis_detail=options.analysis_detail)
             service = create_service(options, prompts)
         analyzed_state = analyze_stage(service, context, rotation.pages)
         grouped_state = aggregate_stage(service, context, analyzed_state)
@@ -1205,6 +1213,20 @@ def format_error(exc: RiordinoError) -> str:
     show_default="$RIORDINO_LANGUAGES or en",
     help="Comma-separated language codes, e.g. 'en,de,fr'.",
 )
+@click.option(
+    "--llm-workers",
+    type=click.IntRange(1, 16),
+    default=4,
+    show_default=True,
+    help="Concurrent model requests; use 1 for a local single-slot model.",
+)
+@click.option(
+    "--analysis-detail",
+    type=click.Choice(["full", "concise"]),
+    default="full",
+    show_default=True,
+    help="Concise extracts boundary clues instead of exhaustive page transcription.",
+)
 @click.option("--batch-size", type=click.IntRange(1, 50), default=10, show_default=True, help="Pages per LLM batch")
 @click.option("--max-retries", type=click.IntRange(0, 10), default=3, show_default=True, help="Max API retry attempts")
 @click.option("--save-steps", is_flag=True, help="Save intermediate outputs to _steps/ directory")
@@ -1225,6 +1247,8 @@ def main(
     api_key_env: str | None,
     response_format: Literal["json_schema", "json_object"],
     request_timeout: float,
+    llm_workers: int,
+    analysis_detail: Literal["full", "concise"],
     language: str,
     batch_size: int,
     max_retries: int,
@@ -1247,6 +1271,8 @@ def main(
             api_key_env=api_key_env,
             response_format=response_format,
             request_timeout=request_timeout,
+            llm_workers=llm_workers,
+            analysis_detail=analysis_detail,
             batch_size=batch_size,
             max_retries=max_retries,
             dry_run=dry_run,

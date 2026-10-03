@@ -225,3 +225,37 @@ def test_native_gemini_transport_still_works():
     assert model.analyze_batch([r.RenderedPage(0, Image.new("RGB", (8, 8)))], ["English"])[0].title == "Invoice"
     assert calls[0]["model"] == "gemini-test"
     assert calls[0]["config"].response_schema is r.BatchAnalysisResult
+
+
+def test_concise_sequential_options(monkeypatch):
+    captured = []
+    monkeypatch.setenv("OPENAI_API_KEY", "test-only")
+    monkeypatch.setattr(r, "run_pipeline", captured.append)
+    result = CliRunner().invoke(
+        r.main,
+        [
+            "in.pdf",
+            "--provider",
+            "openai",
+            "--model",
+            "local",
+            "--base-url",
+            "http://127.0.0.1:8003/v1",
+            "--skip-rotation",
+            "--llm-workers",
+            "1",
+            "--analysis-detail",
+            "concise",
+            "--batch-size",
+            "1",
+            "--request-timeout",
+            "300",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured[0].llm_workers == 1
+    assert captured[0].analysis_detail == "concise"
+    assert captured[0].request_timeout == 300
+    prompt = r.load_prompts(analysis_detail=captured[0].analysis_detail).analysis
+    assert "at most 60 words" in prompt
+    assert "exhaustive" not in prompt
